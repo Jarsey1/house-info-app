@@ -2,9 +2,6 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
-import os
-import re
-from google.cloud import vision
 import googlemaps
 import random
 
@@ -18,11 +15,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-VISION_CREDENTIALS_PATH = "google-cloud-vision-credentials.json"
 MAPS_API_KEY = "AIzaSyBxq17PjCIHboeslPAeS2jBT1-IAOpKAEs"
-
-os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = VISION_CREDENTIALS_PATH
-vision_client = vision.ImageAnnotatorClient()
 maps_client = googlemaps.Client(key=MAPS_API_KEY)
 
 class AddressResult(BaseModel):
@@ -51,37 +44,27 @@ class HouseInfoResponse(BaseModel):
 async def root():
     return {"message": "House Info API is running!", "version": "1.0.0"}
 
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "apis": {"maps": "connected"}}
+
 @app.post("/analyze-house", response_model=HouseInfoResponse)
 async def analyze_house_photo(file: UploadFile = File(...)):
     try:
         if not file.content_type.startswith('image/'):
             raise HTTPException(status_code=400, detail="File must be an image")
         
-        image_content = await file.read()
-        image = vision.Image(content=image_content)
-        response = vision_client.text_detection(image=image)
-        texts = response.text_annotations
+        # For now, simulate address detection with mock data
+        # In production, this would use Google Vision API
+        mock_addresses = [
+            "123 Main Street, Beverly Hills, CA 90210",
+            "456 Oak Avenue, New York, NY 10001", 
+            "789 Pine Boulevard, Miami, FL 33101"
+        ]
         
-        if not texts:
-            return HouseInfoResponse(success=False, message="No text found in image")
+        best_address = random.choice(mock_addresses)
         
-        extracted_text = texts[0].description
-        addresses = []
-        lines = extracted_text.split('\n')
-        
-        for i, line in enumerate(lines):
-            line = line.strip()
-            if re.match(r'^\d+', line) and len(line) > 5:
-                if i + 1 < len(lines):
-                    next_line = lines[i + 1].strip()
-                    next_line = re.sub(r'([A-Z]{2})(\d{5})', r'\1 \2', next_line)
-                    combined = f"{line}, {next_line}"
-                    addresses.append(combined)
-        
-        if not addresses:
-            return HouseInfoResponse(success=False, message="No addresses found")
-        
-        best_address = addresses[0]
+        # Geocode the address
         result = maps_client.geocode(best_address)
         
         if not result:
@@ -96,7 +79,7 @@ async def analyze_house_photo(file: UploadFile = File(...)):
             place_id=result[0]['place_id']
         )
         
-        # Generate mock property info
+        # Generate mock property info based on location
         if "CA" in address_result.formatted_address:
             base_value = random.randint(800000, 2000000)
         elif "NY" in address_result.formatted_address:
@@ -117,7 +100,7 @@ async def analyze_house_photo(file: UploadFile = File(...)):
         
         return HouseInfoResponse(
             success=True,
-            message="House information retrieved successfully",
+            message="House information retrieved successfully (demo mode)",
             property_info=property_info
         )
         
